@@ -39,19 +39,21 @@ sentence_labels = []
 for item in dataset['sentences_with_questions']:
   if item['question_id'] == QUESTION_ID:
     sentence_inputs.append(tokenizer.tokenize('[CLS] ' + item['question'] + ' [SEP] ' + item['sentence']))
-    sentence_labels.append(torch.tensor([item['label']]))
+    sentence_labels.append(torch.tensor([1 if item['label'] > 0 else 0]))
 sentence_inputs = [get_padded_input(item) for item in sentence_inputs]
 sentence_inputs = [torch.tensor([item]) for item in sentence_inputs]
 if n_gpu > 0:
   sentence_inputs = [item.to(device) for item in sentence_inputs]
   sentence_labels = [item.to(device) for item in sentence_labels]
+  model.to(device)
+  criterion.to(device)
 len_sentence = len(sentence_inputs)
 
 article_inputs = []
 article_labels = []
 for item in dataset['original_data'][QUESTION_ID - 1]:
   article_inputs.append(tokenizer.tokenize('[CLS] ' + item['article'] + ' [SEP]'))
-  article_labels.append(torch.tensor([item['answer']]))
+  article_labels.append(torch.tensor([1 if item['answer'] > 0 else 0]))
 article_inputs = [get_padded_input(item) for item in article_inputs]
 article_inputs = [torch.tensor([item]) for item in article_inputs]
 if n_gpu > 0:
