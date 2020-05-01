@@ -105,16 +105,17 @@ for _ in trange(epochs, desc="Epoch"):
   for i in range((len_sentence + len_article) // batch_size):
     train_sentence = count_sentence < len_sentence and \
                      (count_article * (len_sentence / len_article) >= count_sentence)
-    inputs = sentence_inputs[count_sentence : count_sentence + batch_size] if train_sentence \
+    if train_sentence:
+        inputs = sentence_inputs[count_sentence : count_sentence + batch_size] if train_sentence \
             else article_inputs[count_article : count_article + batch_size]
-    labels = sentence_labels[count_sentence : count_sentence + batch_size] if train_sentence \
+        labels = sentence_labels[count_sentence : count_sentence + batch_size] if train_sentence \
             else article_labels[count_article : count_article + batch_size]
-    for input, label in zip(inputs, labels):
-      outputs = model(input)
-      loss = criterion1(outputs[0], label) if train_sentence else criterion2(outputs[0], label)
-      loss.backward()
+        for input, label in zip(inputs, labels):
+          outputs = model(input)
+          loss = criterion1(outputs[0], label) if train_sentence else criterion2(outputs[0], label)
+          loss.backward()
     
-    op = optimizer1 if train_sentence else optimizer2
+    op = optimizer1
     op.step()
     op.zero_grad()
     running_loss += loss.item()
@@ -126,5 +127,5 @@ for _ in trange(epochs, desc="Epoch"):
       print('[%5d] loss: %.3f' % (i + 1, running_loss / 200))
       running_loss = 0.0
 
-Path('./bert_trained').mkdir(parents=True, exist_ok=True)
-model.save_pretrained('./bert_trained')
+Path('./bert_trained_sentence').mkdir(parents=True, exist_ok=True)
+model.save_pretrained('./bert_trained_sentence')
