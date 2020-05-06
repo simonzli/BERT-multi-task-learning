@@ -14,11 +14,11 @@ np.random.seed(2020)
 MAX_LEN = 512
 QUESTION_ID = 1
 
-batch_size = 50
+batch_size = 100
 lr = 1e-3
 max_grad_norm = 1.0
 
-with open('./data.json') as file:
+with open('./train_data.json') as file:
   dataset = json.load(file)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
