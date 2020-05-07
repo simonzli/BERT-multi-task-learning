@@ -14,20 +14,23 @@ np.random.seed(2020)
 MAX_LEN = 512
 QUESTION_ID = 1
 
-batch_size = 100
+batch_size = 10
 lr = 1e-3
 max_grad_norm = 1.0
 
 with open('./train_data.json') as file:
   dataset = json.load(file)
 
+with open('./test_data.json') as file:
+  test_data = json.load(file)
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n_gpu = torch.cuda.device_count()
 
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-model = BertForSequenceClassification.from_pretrained('bert-base-uncased', max_position_embeddings=MAX_LEN)
-criterion1 = torch.nn.CrossEntropyLoss()
-criterion2 = torch.nn.CrossEntropyLoss()
+model = BertForSequenceClassification.from_pretrained('bert-base-uncased', max_position_embeddings=MAX_LEN, num_labels=1)
+criterion1 = torch.nn.MSELoss()
+criterion2 = torch.nn.MSELoss()
 optimizer1 = AdamW(model.parameters(), lr=lr, correct_bias=False)
 optimizer2 = AdamW(model.parameters(), lr=lr, correct_bias=False)
 
@@ -41,7 +44,7 @@ def downsample_inputs(inputs, labels):
   neg_count = 0
   pos_count = 0
   for label in labels:
-    if label.item() == 1:
+    if label == 1:
       pos_count += 1
     else:
       neg_count += 1
@@ -59,7 +62,7 @@ def downsample_inputs(inputs, labels):
   new_inputs = []
   new_labels = []
   for input, label in zip(inputs, labels):
-    if label.item() != downsampled_label or np.random.random_sample() < downsample_rate:
+    if label != downsampled_label or np.random.random_sample() < downsample_rate:
       new_inputs.append(input)
       new_labels.append(label)
 
@@ -71,32 +74,41 @@ sentence_labels = []
 for item in dataset['sentences_with_questions']:
   if item['question_id'] == QUESTION_ID:
     sentence_inputs.append(tokenizer.tokenize('[CLS] ' + item['question'] + ' [SEP] ' + item['sentence']))
-    sentence_labels.append(torch.tensor([1 if item['label'] > 0 else 0]))
+    sentence_labels.append(torch.tensor(1 if item['label'] == 1 else 0))
 sentence_inputs = [get_padded_input(item) for item in sentence_inputs]
-sentence_inputs = [torch.tensor([item]) for item in sentence_inputs]
+# sentence_inputs = [torch.tensor(item) for item in sentence_inputs]
 if n_gpu > 0:
-  sentence_inputs = [item.to(device) for item in sentence_inputs]
-  sentence_labels = [item.to(device) for item in sentence_labels]
+#   sentence_inputs = [item.to(device) for item in sentence_inputs]
+#   sentence_labels = [item.to(device) for item in sentence_labels]
   model.to(device)
   criterion1.to(device)
   criterion2.to(device)
 sentence_inputs, sentence_labels = downsample_inputs(sentence_inputs, sentence_labels)
 len_sentence = len(sentence_inputs)
 
+test_inputs = []
+test_labels = []
+for item in test_data['sentences_with_questions']:
+  if item['question_id'] == QUESTION_ID:
+    test_inputs.append(tokenizer.tokenize('[CLS] ' + item['question'] + ' [SEP] ' + item['sentence']))
+    test_labels.append(torch.tensor(1 if item['label'] == 1 else 0))
+test_inputs = [get_padded_input(item) for item in test_inputs]
+test_inputs, test_labels = downsample_inputs(test_inputs, test_labels)
+
 article_inputs = []
 article_labels = []
 for item in dataset['original_data'][QUESTION_ID - 1]:
   article_inputs.append(tokenizer.tokenize('[CLS] ' + item['article'] + ' [SEP]'))
-  article_labels.append(torch.tensor([1 if item['answer'] == 1 else 0]))
+  article_labels.append(torch.tensor(1 if item['answer'] == 1 else 0))
 article_inputs = [get_padded_input(item) for item in article_inputs]
-article_inputs = [torch.tensor([item]) for item in article_inputs]
-if n_gpu > 0:
-  article_inputs = [item.to(device) for item in article_inputs]
-  article_labels = [item.to(device) for item in article_labels]
+# article_inputs = [torch.tensor(item) for item in article_inputs]
+# if n_gpu > 0:
+#   article_inputs = [item.to(device) for item in article_inputs]
+#   article_labels = [item.to(device) for item in article_labels]
 article_inputs, article_labels = downsample_inputs(article_inputs, article_labels)
 len_article = len(article_inputs)
 
-epochs = 100
+epochs = 1
 
 for _ in trange(epochs, desc="Epoch"):
   count_sentence = 0
@@ -109,10 +121,18 @@ for _ in trange(epochs, desc="Epoch"):
             else article_inputs[count_article : count_article + batch_size]
     labels = sentence_labels[count_sentence : count_sentence + batch_size] if train_sentence \
             else article_labels[count_article : count_article + batch_size]
-    for input, label in zip(inputs, labels):
-      outputs = model(input)
-      loss = criterion1(outputs[0], label) if train_sentence else criterion2(outputs[0], label)
-      loss.backward()
+    # for input, label in zip(inputs, labels):
+    inputs = torch.tensor(inputs).to(device)
+    labels = torch.tensor(labels).to(device).float()
+    outputs = model(inputs, labels=labels)
+    del inputs
+    del labels
+    torch.cuda.empty_cache()
+    
+    loss = outputs[0]
+    loss.backward()
+      # loss = criterion1(outputs[0], label) if train_sentence else criterion2(outputs[0], label)
+      # loss.backward()
     
     op = optimizer1 if train_sentence else optimizer2
     op.step()
@@ -126,5 +146,26 @@ for _ in trange(epochs, desc="Epoch"):
       print('[%5d] loss: %.3f' % (i + 1, running_loss / 200))
       running_loss = 0.0
 
+true_negative = 0
+false_negative = 0
+false_positive = 0
+true_positive = 0
+
+for input, label in zip(test_inputs, test_labels):
+  print(input)
+  output = model(torch.tensor([input]).to(device))
+  output = output[0].cpu().detach().numpy()[0]
+  print(output, label)
+  output = 0 if output[0] < 0 else 1
+  if output == 0 and label == 0:
+    true_negative += 1
+  elif output == 0 and label == 1:
+    false_negative += 1
+  elif output == 1 and label == 0:
+    false_positive += 1
+  elif output == 1 and label == 1:
+    true_positive += 1
+
+print('saving model')
 Path('./bert_trained').mkdir(parents=True, exist_ok=True)
 model.save_pretrained('./bert_trained')

@@ -16,14 +16,14 @@ np.random.seed(2020)
 MAX_LEN = 512
 QUESTION_ID = 1
 
-with open('./data.json') as file:
+with open('./test_data.json') as file:
   dataset = json.load(file)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n_gpu = torch.cuda.device_count()
 
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-model = BertForSequenceClassification.from_pretrained(pretrained, max_position_embeddings=MAX_LEN)
+model = BertForSequenceClassification.from_pretrained(pretrained, max_position_embeddings=MAX_LEN, num_labels=1)
 
 def get_padded_input(input):
   if len(input) > MAX_LEN:
@@ -79,9 +79,12 @@ true_negative = 0
 false_negative = 0
 
 for input, label in zip(sentence_inputs, sentence_labels):
-  output = model(input)
-  output = output[0].detach().numpy()[0]
-  output = 0 if output[0] > output[1] else 1
+  outputs = model(input, labels=label)
+  loss, logits = outputs[:2]
+  print(loss, logits)
+  output = logits.cpu().detach().numpy()[0]
+  print(output, 0 if output[0] < 0 else 1, label)
+  output = 0 if output[0] < 0 else 1
   if output == 0 and label == 0:
     true_negative += 1
   elif output == 0 and label == 1:
